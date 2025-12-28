@@ -1,5 +1,6 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 import logging
 
@@ -15,13 +16,13 @@ class GeminiClient:
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY is missing in .env")
         
-        genai.configure(api_key=self.api_key)
-        self.model_name = "gemini-1.5-flash"
-        self.model = genai.GenerativeModel(model_name=self.model_name)
+        # Gemini 3 uses genai.Client() with API key
+        self.client = genai.Client(api_key=self.api_key)
+        self.model_name = "gemini-3-flash-preview"
 
     async def generate_response(self, persona_instruction: str, history: list, user_input: str) -> str:
         """
-        Generates a response from a specific AI persona.
+        Generates a response from a specific AI persona using Gemini 3.
         
         Args:
             persona_instruction (str): The 'System Instruction' defining the bot's character.
@@ -35,11 +36,8 @@ class GeminiClient:
             # Build context from history
             context_text = self._build_context(history)
             
-            # Combine system instruction + context + user input into a single prompt
-            # This approach works with all library versions
+            # Combine context + user input into contents
             full_prompt = f"""
-{persona_instruction}
-
 --- TOPLANTI GEÇMİŞİ ---
 {context_text}
 
@@ -47,7 +45,16 @@ class GeminiClient:
 {user_input}
 """
             
-            response = self.model.generate_content(full_prompt)
+            # Gemini 3 API format with system_instruction in config
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=persona_instruction,
+                    thinking_config=types.ThinkingConfig(thinking_level="low")  # Fast responses for chat
+                )
+            )
+            
             return response.text
         
         except Exception as e:
