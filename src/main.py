@@ -51,6 +51,9 @@ Bu sistem, 5 farklı yapay zeka karakterinin fikirlerinizi tartıştığı bir s
 
 🛠 **Komutlar:**
 - `/toplanti [Konu]`: Belirtilen konuda yeni bir toplantı başlatır.
+- `/tanis`: Tüm botlar sırayla kendilerini tanıtır.
+- `/ozet`: Mevcut toplantıyı özetleyip kapatır.
+- `/sus`: Aktif toplantıyı acil olarak durdurur.
 - `/info`: Bu bilgi mesajını gösterir.
 - `/start`: Botu selamlar.
 
@@ -82,6 +85,22 @@ async def tanis_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📢 **Yönetim Kurulu Üyeleri Takdim Ediliyor...**")
         asyncio.create_task(orchestrator.introduce_team(chat_id))
 
+async def sus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if orchestrator:
+        stopped = await orchestrator.stop_meeting(chat_id)
+        if stopped:
+            await update.message.reply_text("🛑 **Toplantı Durduruldu!** Tüm botlar susturuldu.")
+        else:
+            await update.message.reply_text("ℹ️ Şu an aktif bir toplantı yok.")
+
+async def ozet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if orchestrator:
+        summarized = await orchestrator.force_summary(chat_id)
+        if not summarized:
+            await update.message.reply_text("ℹ️ Özetlenecek aktif bir toplantı bulunamadı.")
+
 async def main():
     global bot_manager, orchestrator
 
@@ -106,6 +125,8 @@ async def main():
         chairman_app.add_handler(CommandHandler("toplanti", toplanti_command))
         chairman_app.add_handler(CommandHandler("info", info_command))
         chairman_app.add_handler(CommandHandler("tanis", tanis_command))
+        chairman_app.add_handler(CommandHandler("sus", sus_command))
+        chairman_app.add_handler(CommandHandler("ozet", ozet_command))
         logger.info("Handlers attached to Chairman.")
     else:
         logger.error("Chairman bot not found! Check personas.json and .env")

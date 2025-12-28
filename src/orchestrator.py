@@ -15,7 +15,32 @@ class Orchestrator:
         self.gemini_client = gemini_client
         self.turn_order = ["CTO", "CFO", "Growth", "Product", "Devil"] 
         self.rounds = 2
-        self.active_meetings = {} 
+        self.active_meetings = {}  # chat_id -> {'meeting_id': int, 'stopped': bool}
+
+    async def stop_meeting(self, chat_id):
+        """Stops the active meeting for a chat."""
+        if chat_id in self.active_meetings:
+            self.active_meetings[chat_id]['stopped'] = True
+            meeting_id = self.active_meetings[chat_id].get('meeting_id')
+            if meeting_id:
+                async with AsyncSessionLocal() as session:
+                    stmt = update(Meeting).where(Meeting.id == meeting_id).values(status="stopped")
+                    await session.execute(stmt)
+                    await session.commit()
+            return True
+        return False
+
+    async def force_summary(self, chat_id):
+        """Forces summary of the active meeting."""
+        if chat_id in self.active_meetings:
+            meeting_data = self.active_meetings[chat_id]
+            meeting_id = meeting_data.get('meeting_id')
+            topic = meeting_data.get('topic', 'Belirtilmemiş')
+            if meeting_id:
+                self.active_meetings[chat_id]['stopped'] = True
+                await self.summarize_meeting(chat_id, meeting_id, topic)
+                return True
+        return False 
 
     async def start_new_meeting(self, chat_id, topic, user_id):
         """Initiates a new meeting."""
@@ -29,6 +54,13 @@ class Orchestrator:
             meeting_id = new_meeting.id
 
         logger.info(f"Starting meeting {meeting_id} on '{topic}'")
+        
+        # Register active meeting
+        self.active_meetings[chat_id] = {
+            'meeting_id': meeting_id,
+            'topic': topic,
+            'stopped': False
+        }
 
         # 2. Chairman Opening
         chairman_intro = f"🔔 **Yönetim Kurulu Toplantısı Başladı**\n\n📋 **Gündem:** {topic}\n\nToplantıyı açıyorum. Söz sırası: Teknoloji Lideri (CTO) ile başlıyoruz."
@@ -47,17 +79,31 @@ class Orchestrator:
         await asyncio.sleep(2)
 
         for current_round in range(1, self.rounds + 1):
+            # Check if meeting was stopped
+            if self.active_meetings.get(chat_id, {}).get('stopped', False):
+                logger.info(f"Meeting {meeting_id} was stopped by user.")
+                return
+            
             logger.info(f"Meeting {meeting_id} - Round {current_round} Starting")
             
             # Announce Round (Optional, maybe too noisy)
             # await self.bot_manager.send_message("Chairman", chat_id, f"🔄 **Round {current_round}/{self.rounds}**")
 
             for persona_key in self.turn_order:
+                # Check if meeting was stopped
+                if self.active_meetings.get(chat_id, {}).get('stopped', False):
+                    logger.info(f"Meeting {meeting_id} was stopped by user.")
+                    return
+                    
                 await self.play_turn(chat_id, meeting_id, topic, persona_key, current_round)
                 await asyncio.sleep(3) # Wait between speakers for realism and reading time
 
         # End of Rounds - Summary
         await self.summarize_meeting(chat_id, meeting_id, topic)
+        
+        # Cleanup
+        if chat_id in self.active_meetings:
+            del self.active_meetings[chat_id]
 
     async def play_turn(self, chat_id, meeting_id, topic, persona_key, round_num):
         """Executes a single turn for a bot."""
