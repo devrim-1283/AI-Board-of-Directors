@@ -73,21 +73,45 @@ class Orchestrator:
         asyncio.create_task(self.run_meeting_loop(chat_id, meeting_id, topic))
 
     async def run_meeting_loop(self, chat_id, meeting_id, topic):
-        """Main loop that iterates through rounds and bots."""
+        """Main loop that iterates through 3 rounds with different prompts."""
         
         # Small delay before starting
         await asyncio.sleep(2)
+        
+        # Round definitions with specific purposes
+        round_configs = [
+            {
+                "round": 1,
+                "name": "İLK GÖRÜŞLER",
+                "prompt": f"'{topic}' konusu hakkında ilk değerlendirmeni yap. Kendi uzmanlık alanından (rolünden) bakarak kısa ve net bir görüş bildir. Henüz tartışma yok, sadece kendi fikrini söyle."
+            },
+            {
+                "round": 2,
+                "name": "TARTIŞMA",
+                "prompt": f"Diğer üyelerin '{topic}' hakkındaki görüşlerini duydun. Şimdi onların söylediklerine yanıt ver, eleştir veya destekle. Özellikle sana zıt görüşlere cevap ver. Tartışmacı ol ama profesyonel kal."
+            },
+            {
+                "round": 3,
+                "name": "SON SÖZLER",
+                "prompt": f"Tartışma bitti. '{topic}' hakkındaki SON fikrini söyle. Lehte mi aleyhte mi olduğunu net belirt. Tek cümlelik kesin bir yargı ver."
+            }
+        ]
 
-        for current_round in range(1, self.rounds + 1):
+        for config in round_configs:
             # Check if meeting was stopped
             if self.active_meetings.get(chat_id, {}).get('stopped', False):
                 logger.info(f"Meeting {meeting_id} was stopped by user.")
                 return
             
-            logger.info(f"Meeting {meeting_id} - Round {current_round} Starting")
+            current_round = config["round"]
+            round_name = config["name"]
+            round_prompt = config["prompt"]
             
-            # Announce Round (Optional, maybe too noisy)
-            # await self.bot_manager.send_message("Chairman", chat_id, f"🔄 **Round {current_round}/{self.rounds}**")
+            logger.info(f"Meeting {meeting_id} - Round {current_round}: {round_name}")
+            
+            # Announce Round
+            await self.bot_manager.send_message("Chairman", chat_id, f"📢 **{round_name}** (Tur {current_round}/3)")
+            await asyncio.sleep(1)
 
             for persona_key in self.turn_order:
                 # Check if meeting was stopped
@@ -95,8 +119,10 @@ class Orchestrator:
                     logger.info(f"Meeting {meeting_id} was stopped by user.")
                     return
                     
-                await self.play_turn(chat_id, meeting_id, topic, persona_key, current_round)
-                await asyncio.sleep(3) # Wait between speakers for realism and reading time
+                await self.play_turn(chat_id, meeting_id, topic, persona_key, current_round, round_prompt)
+                await asyncio.sleep(4)  # Wait between speakers for realism
+            
+            await asyncio.sleep(2)  # Pause between rounds
 
         # End of Rounds - Summary
         await self.summarize_meeting(chat_id, meeting_id, topic)
@@ -105,7 +131,7 @@ class Orchestrator:
         if chat_id in self.active_meetings:
             del self.active_meetings[chat_id]
 
-    async def play_turn(self, chat_id, meeting_id, topic, persona_key, round_num):
+    async def play_turn(self, chat_id, meeting_id, topic, persona_key, round_num, round_prompt):
         """Executes a single turn for a bot."""
         
         # 1. Fetch History (Context)
@@ -114,9 +140,6 @@ class Orchestrator:
         # Determine Reply Target
         reply_to_id = None
         if history:
-            # The last message in history is the one we should potentially reply to
-            # However, history list above is a dict. We need the actual DB object or store ID in dict.
-            # Let's simple fetch the last message record directly for the ID.
             async with AsyncSessionLocal() as session:
                 stmt = select(Message).where(Message.meeting_id == meeting_id).order_by(Message.id.desc()).limit(1)
                 result = await session.execute(stmt)
@@ -128,14 +151,18 @@ class Orchestrator:
         persona = self.bot_manager.bot_info.get(persona_key)
         system_instruction = persona.get('system_instruction', '')
         
-        # Dynamic prompt injection
+        # Use the round-specific prompt
         user_input_prompt = f"""
-        Şu an '{topic}' konulu yönetim kurulu toplantısındayız.
-        Round: {round_num}.
-        Senden önceki konuşmaları analiz et ve kendi uzmanlık alanına (Role: {persona['role']}) göre yorum yap.
-        Eğer önceki konuşmacı (özellikle CTO veya CFO) saçmaladıysa veya riskli bir şey dediyse ona cevap ver (Reply).
-        Kısa, öz ve karakterine uygun konuş.
-        """
+TOPLANTI KONUSU: {topic}
+TUR: {round_num}/3
+
+{round_prompt}
+
+ÖNEMLİ: 
+- Maksimum 4-5 cümle yaz
+- Rolüne uygun konuş
+- Gereksiz emoji kullanma
+"""
 
         # 3. Generate AI Response
         try:
