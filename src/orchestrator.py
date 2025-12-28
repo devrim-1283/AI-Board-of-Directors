@@ -148,6 +148,26 @@ class Orchestrator:
             session.add(msg)
             await session.commit()
 
+    async def introduce_team(self, chat_id):
+        """Bots introduce themselves sequentially."""
+        
+        introduction_order = ["Chairman"] + self.turn_order
+        
+        for persona_key in introduction_order:
+            persona = self.bot_manager.bot_info.get(persona_key)
+            
+            # Simple static introduction or dynamic
+            # Let's use a dynamic one using Gemini for flavor, or static for speed.
+            # Using prompt for flavor:
+            prompt = f"Kısaca kendini tanıt. Kimsin, ne iş yaparsın ve tarzın ne? Tek bir cümle ile söyle. Merhaba diyerek başla."
+            
+            async with self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing"):
+                # Fast response
+                intro_text = await self.gemini_client.generate_response(persona['system_instruction'], [], prompt)
+            
+            await self.bot_manager.send_message(persona_key, chat_id, intro_text)
+            await asyncio.sleep(1.5) # Short pause between introductions
+
     async def get_meeting_history(self, meeting_id):
         async with AsyncSessionLocal() as session:
             # Fetch last 30 messages to fit in context

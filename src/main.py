@@ -76,6 +76,12 @@ async def toplanti_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # logic is handled in orchestrator, completely detached from this handler to avoid timeout
     asyncio.create_task(orchestrator.start_new_meeting(chat_id, topic, user.id))
 
+async def tanis_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if orchestrator:
+        await update.message.reply_text("📢 **Yönetim Kurulu Üyeleri Takdim Ediliyor...**")
+        asyncio.create_task(orchestrator.introduce_team(chat_id))
+
 async def main():
     global bot_manager, orchestrator
 
@@ -99,6 +105,7 @@ async def main():
         chairman_app.add_handler(CommandHandler("start", start_command))
         chairman_app.add_handler(CommandHandler("toplanti", toplanti_command))
         chairman_app.add_handler(CommandHandler("info", info_command))
+        chairman_app.add_handler(CommandHandler("tanis", tanis_command))
         logger.info("Handlers attached to Chairman.")
     else:
         logger.error("Chairman bot not found! Check personas.json and .env")
