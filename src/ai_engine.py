@@ -50,8 +50,7 @@ class GeminiClient:
                 model=self.model_name,
                 contents=full_prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=persona_instruction,
-                    thinking_config=types.ThinkingConfig(thinking_level="low")  # Fast responses for chat
+                    system_instruction=persona_instruction
                 )
             )
             
