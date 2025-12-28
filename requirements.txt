@@ -1,0 +1,7 @@
+python-telegram-bot==20.7
+google-generativeai==0.3.2
+SQLAlchemy==2.0.25
+asyncpg==0.29.0
+python-dotenv==1.0.1
+pydantic==2.5.3
+greenlet==3.0.3

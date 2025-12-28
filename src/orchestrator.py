@@ -1,0 +1,165 @@
+import asyncio
+import logging
+from datetime import datetime
+from src.db import AsyncSessionLocal
+from src.models import Meeting, Message
+from src.ai_engine import GeminiClient
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+class Orchestrator:
+    def __init__(self, bot_manager, gemini_client):
+        self.bot_manager = bot_manager
+        self.gemini_client = gemini_client
+        self.turn_order = ["CTO", "CFO", "Growth", "Product", "Devil"] # Default order
+        self.rounds = 2
+        self.active_meetings = {} # map meeting_id -> current task/lock
+
+    async def start_new_meeting(self, chat_id, topic, user_id):
+        """Initiates a new meeting."""
+        
+        # 1. Create DB Record
+        async with AsyncSessionLocal() as session:
+            new_meeting = Meeting(topic=topic, status="active")
+            session.add(new_meeting)
+            await session.commit()
+            await session.refresh(new_meeting)
+            meeting_id = new_meeting.id
+
+        logger.info(f"Starting meeting {meeting_id} on '{topic}'")
+
+        # 2. Chairman Opening
+        chairman_intro = f"🔔 **Yönetim Kurulu Toplantısı Başladı**\n\n📋 **Gündem:** {topic}\n\nToplantıyı açıyorum. Söz sırası: Teknoloji Lideri (CTO) ile başlıyoruz."
+        sent_msg = await self.bot_manager.send_message("Chairman", chat_id, chairman_intro)
+
+        # 3. Log Chairman Message
+        await self.log_message(meeting_id, "Chairman", chairman_intro, 0, sent_msg.message_id if sent_msg else None)
+
+        # 4. Start Orchestration Loop
+        asyncio.create_task(self.run_meeting_loop(chat_id, meeting_id, topic))
+
+    async def run_meeting_loop(self, chat_id, meeting_id, topic):
+        """Main loop that iterates through rounds and bots."""
+        
+        # Small delay before starting
+        await asyncio.sleep(2)
+
+        for current_round in range(1, self.rounds + 1):
+            logger.info(f"Meeting {meeting_id} - Round {current_round} Starting")
+            
+            # Announce Round (Optional, maybe too noisy)
+            # await self.bot_manager.send_message("Chairman", chat_id, f"🔄 **Round {current_round}/{self.rounds}**")
+
+            for persona_key in self.turn_order:
+                await self.play_turn(chat_id, meeting_id, topic, persona_key, current_round)
+                await asyncio.sleep(3) # Wait between speakers for realism and reading time
+
+        # End of Rounds - Summary
+        await self.summarize_meeting(chat_id, meeting_id, topic)
+
+    async def play_turn(self, chat_id, meeting_id, topic, persona_key, round_num):
+        """Executes a single turn for a bot."""
+        
+        # 1. Fetch History (Context)
+        history = await self.get_meeting_history(meeting_id)
+        
+        # Determine Reply Target
+        reply_to_id = None
+        if history:
+            # The last message in history is the one we should potentially reply to
+            # However, history list above is a dict. We need the actual DB object or store ID in dict.
+            # Let's simple fetch the last message record directly for the ID.
+            async with AsyncSessionLocal() as session:
+                stmt = select(Message).where(Message.meeting_id == meeting_id).order_by(Message.id.desc()).limit(1)
+                result = await session.execute(stmt)
+                last_msg = result.scalar_one_or_none()
+                if last_msg:
+                    reply_to_id = last_msg.telegram_message_id
+
+        # 2. Prepare System Prompt & Input
+        persona = self.bot_manager.bot_info.get(persona_key)
+        system_instruction = persona.get('system_instruction', '')
+        
+        # Dynamic prompt injection
+        user_input_prompt = f"""
+        Şu an '{topic}' konulu yönetim kurulu toplantısındayız.
+        Round: {round_num}.
+        Senden önceki konuşmaları analiz et ve kendi uzmanlık alanına (Role: {persona['role']}) göre yorum yap.
+        Eğer önceki konuşmacı (özellikle CTO veya CFO) saçmaladıysa veya riskli bir şey dediyse ona cevap ver (Reply).
+        Kısa, öz ve karakterine uygun konuş.
+        """
+
+        # 3. Generate AI Response
+        async with self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing"):
+            # Simulate thinking time
+            await asyncio.sleep(2) 
+            response_text = await self.gemini_client.generate_response(system_instruction, history, user_input_prompt)
+
+        # 4. Clean Response (Optional: Remove markdown code blocks if raw json comes)
+        
+        # 5. Send Message to Telegram
+        sent_msg = await self.bot_manager.send_message(persona_key, chat_id, response_text, reply_to_message_id=reply_to_id)
+        
+        # 6. Log to DB
+        msg_id_to_save = sent_msg.message_id if sent_msg else None
+        await self.log_message(meeting_id, persona_key, response_text, round_num, msg_id_to_save)
+
+    async def summarize_meeting(self, chat_id, meeting_id, topic):
+        """Chairman summarizes and closes the meeting."""
+        
+        history = await self.get_meeting_history(meeting_id)
+        persona = self.bot_manager.bot_info.get("Chairman")
+        
+        prompt = f"""
+        Toplantı bitti. Konu: '{topic}'.
+        Tüm konuşmaları analiz et.
+        1. Ortak Karar (Konsensüs) var mı?
+        2. En büyük risk nedir?
+        3. Sonuç: Yapalım mı, yapmayalım mı?
+        4. Oylama Sonucu (Sanal bir oylama uydur, örn: 3 Evet, 2 Hayır).
+        
+        Lider gibi konuş ve toplantıyı resmi olarak kapat.
+        """
+        
+        async with self.bot_manager.get_bot_app("Chairman").bot.send_chat_action(chat_id=chat_id, action="typing"):
+             await asyncio.sleep(2)
+             summary_text = await self.gemini_client.generate_response(persona['system_instruction'], history, prompt)
+
+        sent_msg = await self.bot_manager.send_message("Chairman", chat_id, summary_text)
+        await self.log_message(meeting_id, "Chairman", summary_text, 99, sent_msg.message_id if sent_msg else None)
+        
+        # Close Meeting in DB
+        async with AsyncSessionLocal() as session:
+            stmt = update(Meeting).where(Meeting.id == meeting_id).values(status="completed", is_processed=True)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def log_message(self, meeting_id, bot_name, content, round_num, telegram_message_id=None):
+        async with AsyncSessionLocal() as session:
+            msg = Message(
+                meeting_id=meeting_id, 
+                bot_name=bot_name, 
+                content=content, 
+                round_number=round_num,
+                telegram_message_id=telegram_message_id
+            )
+            session.add(msg)
+            await session.commit()
+
+    async def get_meeting_history(self, meeting_id):
+        async with AsyncSessionLocal() as session:
+            # Fetch last 30 messages to fit in context
+            stmt = select(Message).where(Message.meeting_id == meeting_id).order_by(Message.id.asc())
+            result = await session.execute(stmt)
+            messages = result.scalars().all()
+            
+            history_data = []
+            for m in messages:
+                history_data.append({
+                    "bot_name": m.bot_name,
+                    "content": m.content,
+                    "is_user": False # All db logs are treated as 'context'
+                })
+            return history_data

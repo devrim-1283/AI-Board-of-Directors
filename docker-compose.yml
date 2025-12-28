@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: board-orchestrator
+    # If running with a local db service in this compose:
+    # depends_on:
+    #   - db
+    environment:
+      # This will be overridden by Coolify's Environment Variables
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:password@db:5432/board_db}
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: Keep this for local testing, but Coolify might provide its own Postgres service
+  # If using Coolify's managed database, you can remove this block in production 
+  # or just not use it by pointing DATABASE_URL to the Coolify DB.
+  db:
+    image: postgres:15-alpine
+    container_name: board-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-board_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
