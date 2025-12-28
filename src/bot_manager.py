@@ -76,8 +76,7 @@ class BotManager:
             return None
         
         try:
-            # Typewriter effect simulation could be done here by editing message
-            # For now, just send.
+            # First try with reply
             sent_msg = await app.bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -86,8 +85,24 @@ class BotManager:
             )
             return sent_msg
         except Exception as e:
-            logger.error(f"Error sending message as {bot_key}: {e}")
-            return None
+            error_str = str(e)
+            
+            # If reply target not found, retry without reply
+            if "Message to be replied not found" in error_str or "replied" in error_str.lower():
+                logger.warning(f"Reply target not found for {bot_key}, sending without reply")
+                try:
+                    sent_msg = await app.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode='Markdown'
+                    )
+                    return sent_msg
+                except Exception as e2:
+                    logger.error(f"Error sending message as {bot_key} (retry): {e2}")
+                    return None
+            else:
+                logger.error(f"Error sending message as {bot_key}: {e}")
+                return None
 
     def get_bot_app(self, bot_key):
         return self.bots.get(bot_key)

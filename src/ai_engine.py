@@ -19,11 +19,10 @@ class GeminiClient:
         
         # Gemini uses genai.Client() with API key
         self.client = genai.Client(api_key=self.api_key)
-        # Gemini 2.5 Flash: Best balance of speed, quality, and high rate limits (1500 RPM free tier)
-        # Gemini 3 Flash has only 20 requests/DAY on free tier - not suitable for this use case
-        self.model_name = "gemini-2.5-flash"
-        self.max_retries = 3
-        self.retry_delay = 10  # seconds
+        # Gemini 3 Flash - latest and most capable model
+        self.model_name = "gemini-3-flash-preview"
+        self.max_retries = 5
+        self.retry_delay = 25  # 25 seconds for rate limit recovery
 
     async def generate_response(self, persona_instruction: str, history: list, user_input: str) -> str:
         """
