@@ -13,9 +13,9 @@ class Orchestrator:
     def __init__(self, bot_manager, gemini_client):
         self.bot_manager = bot_manager
         self.gemini_client = gemini_client
-        self.turn_order = ["CTO", "CFO", "Growth", "Product", "Devil"] # Default order
+        self.turn_order = ["CTO", "CFO", "Growth", "Product", "Devil"] 
         self.rounds = 2
-        self.active_meetings = {} # map meeting_id -> current task/lock
+        self.active_meetings = {} 
 
     async def start_new_meeting(self, chat_id, topic, user_id):
         """Initiates a new meeting."""
@@ -92,10 +92,14 @@ class Orchestrator:
         """
 
         # 3. Generate AI Response
-        async with self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing"):
-            # Simulate thinking time
-            await asyncio.sleep(2) 
-            response_text = await self.gemini_client.generate_response(system_instruction, history, user_input_prompt)
+        try:
+            await self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception as e:
+            logger.warning(f"Could not send typing action: {e}")
+        
+        # Simulate thinking time
+        await asyncio.sleep(2) 
+        response_text = await self.gemini_client.generate_response(system_instruction, history, user_input_prompt)
 
         # 4. Clean Response (Optional: Remove markdown code blocks if raw json comes)
         
@@ -123,9 +127,13 @@ class Orchestrator:
         Lider gibi konuş ve toplantıyı resmi olarak kapat.
         """
         
-        async with self.bot_manager.get_bot_app("Chairman").bot.send_chat_action(chat_id=chat_id, action="typing"):
-             await asyncio.sleep(2)
-             summary_text = await self.gemini_client.generate_response(persona['system_instruction'], history, prompt)
+        try:
+            await self.bot_manager.get_bot_app("Chairman").bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception as e:
+            logger.warning(f"Could not send typing action: {e}")
+        
+        await asyncio.sleep(2)
+        summary_text = await self.gemini_client.generate_response(persona['system_instruction'], history, prompt)
 
         sent_msg = await self.bot_manager.send_message("Chairman", chat_id, summary_text)
         await self.log_message(meeting_id, "Chairman", summary_text, 99, sent_msg.message_id if sent_msg else None)
@@ -161,9 +169,13 @@ class Orchestrator:
             # Using prompt for flavor:
             prompt = f"Kısaca kendini tanıt. Kimsin, ne iş yaparsın ve tarzın ne? Tek bir cümle ile söyle. Merhaba diyerek başla."
             
-            async with self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing"):
-                # Fast response
-                intro_text = await self.gemini_client.generate_response(persona['system_instruction'], [], prompt)
+            try:
+                await self.bot_manager.get_bot_app(persona_key).bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception as e:
+                logger.warning(f"Could not send typing action: {e}")
+            
+            # Fast response
+            intro_text = await self.gemini_client.generate_response(persona['system_instruction'], [], prompt)
             
             await self.bot_manager.send_message(persona_key, chat_id, intro_text)
             await asyncio.sleep(1.5) # Short pause between introductions
