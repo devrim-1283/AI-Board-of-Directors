@@ -1,4 +1,5 @@
 import os
+import time
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -16,49 +17,59 @@ class GeminiClient:
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY is missing in .env")
         
-        # Gemini 3 uses genai.Client() with API key
+        # Gemini uses genai.Client() with API key
         self.client = genai.Client(api_key=self.api_key)
+        # Using Gemini 3 Flash - has 20 RPM limit on free tier, so we use longer retries
         self.model_name = "gemini-3-flash-preview"
+        self.max_retries = 5
+        self.retry_delay = 25  # 25 seconds to safely wait out the rate limit window
 
     async def generate_response(self, persona_instruction: str, history: list, user_input: str) -> str:
         """
-        Generates a response from a specific AI persona using Gemini 3.
-        
-        Args:
-            persona_instruction (str): The 'System Instruction' defining the bot's character.
-            history (list): List of previous messages in the meeting (Context).
-            user_input (str): The specific prompt or trigger for this turn.
-            
-        Returns:
-            str: The AI's response text.
+        Generates a response from a specific AI persona using Gemini.
+        Includes retry logic for rate limit errors.
         """
-        try:
-            # Build context from history
-            context_text = self._build_context(history)
-            
-            # Combine context + user input into contents
-            full_prompt = f"""
+        
+        # Build context from history
+        context_text = self._build_context(history)
+        
+        # Combine context + user input into contents
+        full_prompt = f"""
 --- TOPLANTI GEÇMİŞİ ---
 {context_text}
 
 --- ŞİMDİKİ GÖREV ---
 {user_input}
 """
-            
-            # Gemini 3 API format with system_instruction in config
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=persona_instruction
-                )
-            )
-            
-            return response.text
         
-        except Exception as e:
-            logger.error(f"Gemini API Error: {e}")
-            return "Beyinlerim yandı... (API Error)"
+        for attempt in range(self.max_retries):
+            try:
+                # Gemini API format with system_instruction in config
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=persona_instruction
+                    )
+                )
+                
+                return response.text
+            
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a rate limit error (429)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    wait_time = self.retry_delay * (attempt + 1)  # Exponential backoff
+                    logger.warning(f"Rate limit hit. Waiting {wait_time}s before retry {attempt + 1}/{self.max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Gemini API Error: {e}")
+                    return "Beyinlerim yandı... (API Error)"
+        
+        logger.error("Max retries exceeded for Gemini API")
+        return "Beyinlerim yandı... (Rate Limit)"
 
     def _build_context(self, history: list) -> str:
         """

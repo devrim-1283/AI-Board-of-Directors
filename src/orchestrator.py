@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import json
+import os
 from datetime import datetime
 from src.db import AsyncSessionLocal
 from src.models import Meeting, Message
@@ -14,8 +16,49 @@ class Orchestrator:
         self.bot_manager = bot_manager
         self.gemini_client = gemini_client
         self.turn_order = ["CTO", "CFO", "Growth", "Product", "Devil"] 
-        self.rounds = 2
+        self.rounds = 3
         self.active_meetings = {}  # chat_id -> {'meeting_id': int, 'stopped': bool}
+        
+        # Load company context from readme.json
+        self.company_context = self._load_company_context()
+    
+    def _load_company_context(self):
+        """Load company info from readme.json"""
+        try:
+            readme_path = os.path.join(os.path.dirname(__file__), 'readme.json')
+            with open(readme_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            # Format as readable context
+            company = data.get('company', {})
+            budget = data.get('budget', {})
+            priorities = data.get('priorities', [])
+            tech = data.get('tech_stack', {})
+            
+            context = f"""
+ŞİRKET BİLGİLERİ:
+- Şirket: {company.get('name', 'Belirtilmemiş')}
+- Sektör: {company.get('sector', 'Belirtilmemiş')}
+- Açıklama: {company.get('description', '')}
+- Ekip: {company.get('team_size', '?')} kişi
+- Konum: {company.get('location', 'Belirtilmemiş')}
+
+BÜTÇE:
+- Aylık Bütçe: {budget.get('monthly_budget_try', '?')} {budget.get('currency', 'TRY')}
+- Not: {budget.get('notes', '')}
+
+TEKNOLOJİ:
+- Diller: {', '.join(tech.get('primary_languages', []))}
+- Framework: {', '.join(tech.get('frameworks', []))}
+- Altyapı: {', '.join(tech.get('infrastructure', []))}
+
+ÖNCELİKLER: {', '.join(priorities)}
+"""
+            logger.info("Company context loaded from readme.json")
+            return context
+        except Exception as e:
+            logger.warning(f"Could not load readme.json: {e}")
+            return ""
 
     async def stop_meeting(self, chat_id):
         """Stops the active meeting for a chat."""
@@ -151,8 +194,10 @@ class Orchestrator:
         persona = self.bot_manager.bot_info.get(persona_key)
         system_instruction = persona.get('system_instruction', '')
         
-        # Use the round-specific prompt
+        # Use the round-specific prompt with company context
         user_input_prompt = f"""
+{self.company_context}
+
 TOPLANTI KONUSU: {topic}
 TUR: {round_num}/3
 
@@ -162,6 +207,7 @@ TUR: {round_num}/3
 - Maksimum 4-5 cümle yaz
 - Rolüne uygun konuş
 - Gereksiz emoji kullanma
+- Şirket bilgilerini göz önünde bulundur (bütçe, teknoloji, öncelikler)
 """
 
         # 3. Generate AI Response

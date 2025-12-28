@@ -1,0 +1,45 @@
+{
+    "company": {
+        "name": "DevrimSoft",
+        "sector": "Yazılım / SaaS",
+        "description": "Küçük ve orta ölçekli işletmelere yönelik dijital çözümler geliştiren bir startup.",
+        "founded": "2023",
+        "team_size": 3,
+        "location": "Türkiye"
+    },
+    "budget": {
+        "monthly_budget_try": 5000,
+        "currency": "TRY",
+        "notes": "Öğrenci girişimi, sınırlı bütçe. Mümkünse ücretsiz/açık kaynak tercih edilmeli."
+    },
+    "tech_stack": {
+        "primary_languages": [
+            "Python",
+            "Go",
+            "TypeScript"
+        ],
+        "frameworks": [
+            "Next.js",
+            "FastAPI",
+            "Fiber"
+        ],
+        "infrastructure": [
+            "Docker",
+            "Coolify",
+            "PostgreSQL"
+        ],
+        "cloud_preference": "Self-hosted (Coolify)"
+    },
+    "priorities": [
+        "Düşük maliyet",
+        "Hızlı geliştirme süresi",
+        "Kullanıcı deneyimi (UX)",
+        "KVKK uyumu"
+    ],
+    "target_market": {
+        "primary": "Küçük işletmeler ve esnaflar",
+        "secondary": "Freelancer'lar ve KOBİ'ler",
+        "region": "Türkiye"
+    },
+    "notes": "Bu dosyayı düzenleyerek AI botların sizi daha iyi tanımasını sağlayabilirsiniz."
+}
